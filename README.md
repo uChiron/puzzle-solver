@@ -9,32 +9,18 @@ https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
 
 Several puzzles remain unsolved, amounting to a total of 956.5 BTC!
 
-The goal of this project is to tackle these puzzles. Currently, it only works on CPU and Nvidia GPUs specifically via CUDA.
+The goal of this project is to tackle these puzzles. Currently, it only works on CPU.
 
 # Download
 
 You can find the binaries on the [releases](https://github.com/milewski/puzzle-solver/releases) page. 
 
-- Windows: [puzzle-solver (CPU + GPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-windows_puzzle-solver.exe)
-- Linux: [puzzle-solver (CPU + GPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-linux_puzzle-solver)
+- Windows: [puzzle-solver (CPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-windows_puzzle-solver.exe)
+- Linux: [puzzle-solver (CPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-linux_puzzle-solver)
 - Mac (Intel): [puzzle-solver (CPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-apple_puzzle-solver)
 - Mac (ARM): [puzzle-solver (CPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/aarch64-apple_puzzle-solver)
 
 # How to Run the Solver
-
-## Run on GPU (Nvidia)
-
-```shell
-./puzzle-solver.exe --puzzle 66 gpu
-```
-
-#### Options:
-
-```
-./puzzle-solver.exe --puzzle 66 gpu \ 
-    --threads 1024 \
-    --blocks 1024
-```
 
 ## Run on CPU
 
@@ -52,7 +38,7 @@ You can find the binaries on the [releases](https://github.com/milewski/puzzle-s
 ## Run from Source
 
 ```
-cargo run --release --features cuda --puzzle 66 gpu
+cargo run --release --puzzle 66 cpu
 ```
 
 ## Donation

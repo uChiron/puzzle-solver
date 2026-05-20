@@ -30,8 +30,6 @@ fn main() -> anyhow::Result<()> {
 
     println!("Working on puzzle #{:?} via {}.", args.puzzle, match args.mode {
         Device::CPU { .. } => "CPU",
-        #[cfg(feature = "cuda")]
-        Device::GPU { .. } => "GPU"
     });
 
     if let Some(solution) = worker.work(args.mode) {

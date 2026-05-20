@@ -5,44 +5,14 @@ use std::thread;
 use std::thread::{available_parallelism, JoinHandle, spawn};
 
 use clap::Subcommand;
-#[cfg(feature = "cuda")]
-use cudarc::driver::{CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig};
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
-use k256::elliptic_curve::sec1::ToEncodedPoint;
 use num_bigint::BigUint;
 use num_traits::{ToBytes, ToPrimitive};
 
 use crate::puzzle::{Hasher, Solution, Utility};
 use crate::puzzles::{PuzzleDescriptor, PuzzleRange};
 use crate::reporter::{Report, Reporter};
-
-#[cfg(feature = "cuda")]
-pub const SECP256K1: &str = include_str!(concat!(env!("OUT_DIR"), "/secp256k1.ptx"));
-
-#[cfg(feature = "cuda")]
-#[repr(C)]
-#[derive(Debug, Default)]
-struct ThreadSolution {
-    thread: u32,
-    index: u32,
-}
-
-#[cfg(feature = "cuda")]
-impl ThreadSolution {
-    fn is_found(&self) -> bool {
-        self.thread != 0 || self.index != 0
-    }
-
-    fn to_solution(&self, keys: &Vec<BigUint>) -> Solution {
-        let key = keys.get(self.thread as usize).unwrap();
-
-        Solution(key.add(self.index + 1))
-    }
-}
-
-#[cfg(feature = "cuda")]
-unsafe impl DeviceRepr for ThreadSolution {}
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum Device {
@@ -51,16 +21,6 @@ pub enum Device {
         threads: u8,
 
         #[arg(short, long, default_value_t = 100000)]
-        increments: u32,
-    },
-
-    #[cfg(feature = "cuda")]
-    GPU {
-        #[arg(short, long, default_value_t = 256)]
-        threads: u32,
-        #[arg(short, long, default_value_t = 256)]
-        blocks: u32,
-        #[arg(short, long, default_value_t = 50000)]
         increments: u32,
     },
 }
@@ -128,8 +88,6 @@ where
     pub fn work(&self, device: Device) -> Option<Solution> {
         match device {
             Device::CPU { threads, increments } => self.compute_parallel(threads, increments),
-            #[cfg(feature = "cuda")]
-            Device::GPU { blocks, threads, increments } => self.compute_gpu(blocks, threads, increments)
         }
     }
 
@@ -215,73 +173,6 @@ where
         None
     }
 
-    #[cfg(feature = "cuda")]
-    fn compute_gpu(&self, blocks: u32, threads: u32, increments: u32) -> Option<Solution> {
-        let device = cudarc::driver::CudaDevice::new(0).unwrap();
-
-        device.load_ptx(SECP256K1.into(), "secp256k1", &["start"]).unwrap();
-
-        let target_param: CudaSlice<_> = device.htod_sync_copy(&self.target).unwrap();
-
-        let cfg: LaunchConfig = LaunchConfig {
-            grid_dim: (blocks, 1, 1),
-            block_dim: (threads, 1, 1),
-            shared_mem_bytes: 0,
-        };
-
-        let hashes = ((threads * blocks) * increments) as u64;
-        let increments = BigUint::from(increments);
-
-        loop {
-            let mut batches = vec![];
-
-            for _ in 0..(threads * blocks) {
-                let (key, _) = self.range.random_between(&increments, self.utility.clone());
-
-                batches.push(key);
-            }
-
-            let mut flatten: Vec<u8> = Vec::with_capacity((threads * blocks * 2 * 32) as usize);
-
-            for key in &batches {
-                if let Ok(point) = self.get_curve_point(key) {
-                    let encoded = point.to_encoded_point(false);
-
-                    if let (Some(x), Some(y)) = (encoded.x(), encoded.y()) {
-                        flatten.extend(x.0);
-                        flatten.extend(y.0);
-                    }
-                }
-            }
-
-            let increments_u32 = increments.to_u32().unwrap();
-            let points_param: CudaSlice<_> = device.htod_sync_copy(&flatten).unwrap();
-            let increment_param: CudaSlice<u32> = device.htod_sync_copy(&[increments_u32]).unwrap();
-            let mut solution_param: CudaSlice<_> = device.htod_sync_copy::<ThreadSolution>(&[ThreadSolution::default()]).unwrap();
-
-            let start_function = device.get_func("secp256k1", "start").unwrap();
-
-            unsafe { start_function.launch(cfg, (&points_param, &target_param, &mut solution_param, &increment_param,)) }.unwrap();
-
-            for solution in &device.dtoh_sync_copy(&solution_param).unwrap() {
-                if solution.is_found() {
-                    return Some(solution.to_solution(&batches));
-                }
-            }
-
-            let last_key = batches
-                .last()
-                .map(|key| key.add(BigUint::from(increments_u32.saturating_sub(1))))
-                .unwrap_or_default();
-
-            if let Err(error) = self.reporter.send(Report {
-                hashes,
-                last_key: Self::format_private_key(&last_key),
-            }) {
-                println!("Failed to report hash rate: {:?}", error)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
