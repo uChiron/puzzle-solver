@@ -15,7 +15,7 @@ use num_traits::{ToBytes, ToPrimitive};
 
 use crate::puzzle::{Hasher, Solution, Utility};
 use crate::puzzles::{PuzzleDescriptor, PuzzleRange};
-use crate::reporter::Reporter;
+use crate::reporter::{Report, Reporter};
 
 #[cfg(feature = "cuda")]
 pub const SECP256K1: &str = include_str!(concat!(env!("OUT_DIR"), "/secp256k1.ptx"));
@@ -72,7 +72,7 @@ enum Error {
 pub struct Worker<T: Hasher + 'static> {
     range: PuzzleRange,
     // reporter: Arc<Mutex<Reporter>>,
-    reporter: Sender<u64>,
+    reporter: Sender<Report>,
     // receiver: Arc<Mutex<Receiver<u64>>>,
     increments: BigUint,
     target: [u8; 20],
@@ -84,7 +84,7 @@ where
     T: Hasher + Send + Sync,
 {
     pub fn from_puzzle(challenge: &PuzzleDescriptor, utility: Arc<Utility<T>>) -> anyhow::Result<Self> {
-        let (sender, receiver) = channel::<u64>();
+        let (sender, receiver) = channel::<Report>();
 
         spawn(move || {
             let mut reporer = Reporter::clean();
@@ -119,6 +119,10 @@ where
             .to_projective();
 
         Ok(point)
+    }
+
+    fn format_private_key(key: &BigUint) -> String {
+        format!("{:0>64}", key.to_str_radix(16))
     }
 
     pub fn work(&self, device: Device) -> Option<Solution> {
@@ -161,7 +165,10 @@ where
                         counter.add_assign(1u8);
                     }
 
-                    if let Err(error) = reporter.send(difference) {
+                    if let Err(error) = reporter.send(Report {
+                        hashes: difference,
+                        last_key: Self::format_private_key(&max),
+                    }) {
                         println!("Failed to report hash rate: {:?}", error)
                     }
 
@@ -198,7 +205,10 @@ where
             counter.add_assign(1u8);
         }
 
-        if let Err(error) = self.reporter.send(difference) {
+        if let Err(error) = self.reporter.send(Report {
+            hashes: difference,
+            last_key: Self::format_private_key(&max),
+        }) {
             println!("Failed to report hash rate: {:?}", error)
         }
 
@@ -259,7 +269,15 @@ where
                 }
             }
 
-            if let Err(error) = self.reporter.send(hashes) {
+            let last_key = batches
+                .last()
+                .map(|key| key.add(BigUint::from(increments_u32.saturating_sub(1))))
+                .unwrap_or_default();
+
+            if let Err(error) = self.reporter.send(Report {
+                hashes,
+                last_key: Self::format_private_key(&last_key),
+            }) {
                 println!("Failed to report hash rate: {:?}", error)
             }
         }

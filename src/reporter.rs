@@ -3,8 +3,14 @@ use std::time::{Duration, Instant};
 
 use human_format::Formatter;
 
-#[derive(Clone, Copy)]
+pub struct Report {
+    pub hashes: u64,
+    pub last_key: String,
+}
+
+#[derive(Clone)]
 pub struct Reporter {
+    last_key: String,
     rate: u64,
     interval: Duration,
     report_at: Instant,
@@ -13,6 +19,7 @@ pub struct Reporter {
 impl Reporter {
     pub fn clean() -> Self {
         Self {
+            last_key: String::new(),
             rate: 0,
             report_at: Instant::now(),
             interval: Duration::from_secs(10),
@@ -21,14 +28,16 @@ impl Reporter {
 
     pub fn new() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
+            last_key: String::new(),
             rate: 0,
             report_at: Instant::now(),
             interval: Duration::from_secs(1),
         }))
     }
 
-    pub fn update(&mut self, hashes: u64) {
-        self.rate += hashes;
+    pub fn update(&mut self, report: Report) {
+        self.rate += report.hashes;
+        self.last_key = report.last_key;
 
         let duration = Instant::now().duration_since(self.report_at);
 
@@ -44,7 +53,7 @@ impl Reporter {
                 .with_scales(scales)
                 .format(count as f64);
 
-            println!("Hashrate: {}", number);
+            println!("Hashrate: {} | Last key: {}", number, self.last_key);
 
             self.rate = 0;
             self.report_at = Instant::now();
